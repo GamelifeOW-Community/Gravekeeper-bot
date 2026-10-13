@@ -20,13 +20,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ResponseAction описывает одно действие ответа (какой тип и с какими параметрами)
+// ResponseAction описывает одно действие ответа
 type ResponseAction struct {
-	Type     string  `yaml:"type"`               // "text", "gif", "voice"
-	Content  string  `yaml:"content,omitempty"`  // Для text
-	URL      string  `yaml:"url,omitempty"`      // Для gif
-	Path     string  `yaml:"path,omitempty"`     // Для voice
-	Duration float64 `yaml:"duration,omitempty"` // Для voice
+	Type     string  `yaml:"type"`
+	Content  string  `yaml:"content,omitempty"`
+	URL      string  `yaml:"url,omitempty"`
+	Path     string  `yaml:"path,omitempty"`
+	Duration float64 `yaml:"duration,omitempty"`
+}
+
+// PatternConfig описывает отдельный паттерн и его переопределения
+type PatternConfig struct {
+	Pattern      string           `yaml:"pattern"`
+	MuteDuration time.Duration    `yaml:"mute_duration"`
+	Responses    []ResponseAction `yaml:"responses"`
+}
+
+// CompiledPattern связывает скомпилированную регулярку с ее настройками
+type CompiledPattern struct {
+	Regexp *regexp.Regexp
+	Config PatternConfig
 }
 
 type Config struct {
@@ -34,11 +47,11 @@ type Config struct {
 	GuildID           string           `yaml:"guild_id"`
 	MonitoredChannels []string         `yaml:"monitored_channels"`
 	MuteRoleID        string           `yaml:"mute_role_id"`
-	MuteDuration      time.Duration    `yaml:"mute_duration"`
 	IgnoreReplies     bool             `yaml:"ignore_replies"`
-	StateFilePath     string           `yaml:"state_file_path"` // Путь к mutes.json
-	Patterns          []string         `yaml:"patterns"`
-	Responses         []ResponseAction `yaml:"responses"`       // Теперь это массив с порядком
+	StateFilePath     string           `yaml:"state_file_path"`
+	MuteDuration      time.Duration    `yaml:"mute_duration"` // Дефолтное время
+	Responses         []ResponseAction `yaml:"responses"`     // Дефолтные ответы
+	Patterns          []PatternConfig  `yaml:"patterns"`
 }
 
 type MuteRecord struct {
@@ -50,7 +63,7 @@ type MuteRecord struct {
 type Bot struct {
 	config     Config
 	session    *discordgo.Session
-	regexes    []*regexp.Regexp
+	patterns   []CompiledPattern // Храним скомпилированные паттерны с их конфигами
 	state      map[string]MuteRecord
 	stateMutex sync.Mutex
 }
@@ -66,9 +79,17 @@ func main() {
 		log.Fatalf("Ошибка парсинга YAML: %v", err)
 	}
 
-	var regexes []*regexp.Regexp
+	// Компилируем регулярки и привязываем к ним их настройки
+	var compiledPatterns []CompiledPattern
 	for _, p := range cfg.Patterns {
-		regexes = append(regexes, regexp.MustCompile(p))
+		re, err := regexp.Compile(p.Pattern)
+		if err != nil {
+			log.Fatalf("Ошибка компиляции паттерна '%s': %v", p.Pattern, err)
+		}
+		compiledPatterns = append(compiledPatterns, CompiledPattern{
+			Regexp: re,
+			Config: p,
+		})
 	}
 
 	dg, err := discordgo.New("Bot " + cfg.BotToken)
@@ -78,10 +99,10 @@ func main() {
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsGuilds
 
 	b := &Bot{
-		config:  cfg,
-		session: dg,
-		regexes: regexes,
-		state:   make(map[string]MuteRecord),
+		config:   cfg,
+		session:  dg,
+		patterns: compiledPatterns,
+		state:    make(map[string]MuteRecord),
 	}
 
 	b.loadState()
@@ -117,37 +138,60 @@ func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		textToCheck += " " + att.Filename
 	}
 
-	isMatch := false
-	for _, re := range b.regexes {
-		if re.MatchString(textToCheck) {
-			isMatch = true
-			break
+	// Ищем совпадение
+	var matchedPattern *CompiledPattern
+	for _, cp := range b.patterns {
+		if cp.Regexp.MatchString(textToCheck) {
+			matchedPattern = &cp
+			break // Останавливаемся на первом совпавшем паттерне
 		}
 	}
-	if !isMatch {
-		return
+
+	if matchedPattern == nil {
+		return // Совпадений нет
 	}
 
-	log.Printf("Обнаружен триггер от %s (%s)", m.Author.Username, m.Author.ID)
+	log.Printf("Обнаружен триггер ('%s') от %s (%s)", matchedPattern.Config.Pattern, m.Author.Username, m.Author.ID)
 
-	_ = s.GuildMemberRoleAdd(b.config.GuildID, m.Author.ID, b.config.MuteRoleID)
+	// --- ОПРЕДЕЛЯЕМ НАСТРОЙКИ (Специфичные или Дефолтные) ---
+	
+	// 1. Длительность мута
+	duration := b.config.MuteDuration
+	if matchedPattern.Config.MuteDuration != 0 {
+		duration = matchedPattern.Config.MuteDuration
+	}
 
-	unmuteTime := time.Now().Add(b.config.MuteDuration)
+	// 2. Действия ответа (Responses)
+	actions := b.config.Responses
+	if len(matchedPattern.Config.Responses) > 0 {
+		actions = matchedPattern.Config.Responses
+	}
+
+	// Выдаем роль
+	err := s.GuildMemberRoleAdd(b.config.GuildID, m.Author.ID, b.config.MuteRoleID)
+	if err != nil {
+		log.Printf("❌ ОШИБКА выдачи роли мута: %v", err)
+	} else {
+		log.Printf("✅ Выдан мут пользователю %s на %v", m.Author.Username, duration)
+	}
+
+	// Планируем снятие мута с учетом вычисленной duration
+	unmuteTime := time.Now().Add(duration)
 	b.saveMute(b.config.GuildID, m.Author.ID, unmuteTime)
-	b.scheduleUnmute(b.config.GuildID, m.Author.ID, b.config.MuteDuration)
+	b.scheduleUnmute(b.config.GuildID, m.Author.ID, duration)
 
-	b.sendReply(m.Message)
+	// Отправляем ответ, передавая вычисленный массив actions
+	b.sendReply(m.Message, actions)
 }
 
-func (b *Bot) sendReply(m *discordgo.Message) {
-	// DiscordGo вызывает обработчики в горутинах, поэтому мы можем безопасно использовать time.Sleep
-	// для соблюдения порядка, не блокируя работу всего бота.
-	for _, action := range b.config.Responses {
+// Теперь функция принимает конкретный список действий
+func (b *Bot) sendReply(m *discordgo.Message, actions []ResponseAction) {
+	for _, action := range actions {
 		switch action.Type {
 		case "text":
 			b.sendTextMsg(m.ChannelID, m.ID, action.Content)
 		case "gif":
-			b.sendTextMsg(m.ChannelID, m.ID, action.URL) // Discord сам разворачивает URL в гифку
+			b.sendTextMsg(m.ChannelID, m.ID, action.URL)
 		case "voice":
 			err := b.sendActualVoiceMessage(m.ChannelID, m.ID, action.Path, action.Duration)
 			if err != nil {
@@ -156,11 +200,11 @@ func (b *Bot) sendReply(m *discordgo.Message) {
 		default:
 			log.Printf("Неизвестный тип ответа: %s", action.Type)
 		}
-		// Небольшая задержка, чтобы Discord гарантированно отрисовал сообщения по порядку
 		time.Sleep(700 * time.Millisecond)
 	}
 }
 
+// Вспомогательные методы отправки и работы со стейтом остаются без изменений
 func (b *Bot) sendTextMsg(channelID, messageID, content string) {
 	_, err := b.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: content,
@@ -183,7 +227,6 @@ func (b *Bot) sendActualVoiceMessage(channelID, replyToID, filePath string, dura
 	client := &http.Client{Timeout: 30 * time.Second}
 	apiBase := fmt.Sprintf("https://discord.com/api/v10/channels/%s", channelID)
 
-	// ШАГ 1: Получение URL для загрузки
 	attReq := map[string]any{
 		"files": []map[string]any{{"filename": "voice.ogg", "file_size": len(fileData), "id": "0"}},
 	}
@@ -213,7 +256,6 @@ func (b *Bot) sendActualVoiceMessage(channelID, replyToID, filePath string, dura
 		return fmt.Errorf("некорректный ответ API при запросе вложений")
 	}
 
-	// ШАГ 2: Загрузка OGG файла
 	putReq, _ := http.NewRequest("PUT", attResp.Attachments[0].UploadURL, bytes.NewReader(fileData))
 	putReq.Header.Set("Content-Type", "audio/ogg")
 	putResp, err := client.Do(putReq)
@@ -225,7 +267,6 @@ func (b *Bot) sendActualVoiceMessage(channelID, replyToID, filePath string, dura
 		return fmt.Errorf("ошибка загрузки файла на сервер Discord (HTTP %d)", putResp.StatusCode)
 	}
 
-	// ШАГ 3: Создание волны и отправка сообщения
 	waveformBytes := make([]byte, 256)
 	for i := range waveformBytes {
 		waveformBytes[i] = byte(math.Abs(math.Sin(float64(i)*0.1)) * 128)
