@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build:
+      context: .
+      tags:
+        - gravekeeper_bot:latest
+    container_name: gravekeeper-bot
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./files:/app/files:ro
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Moscow

@@ -1,0 +1,3 @@
+config.yaml
+*.mp3
+/data/mutes.json
