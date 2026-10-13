@@ -33,16 +33,29 @@ patterns:
       - type: "gif"
         url: "https://klipy.com/gifs/dai-li-brainwashing-1"
   # # заебалась
-  - pattern: '(?i)[з3z]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[б6b]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[лl]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[сcs$]+(?:[^a-zа-я0-9ё]*[ьb])?'
-    mute_duration: 30s
-    responses:
-      - type: "voice"
-        path: "./files/relax_bitch_audio.ogg"
-        duration: 6
-      - type: "gif"
-        url: "https://cdn.discordapp.com/attachments/718015270194511903/1559540430700286022/relax_bitch.gif"
+  # - pattern: '(?i)[з3z]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[б6b]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[лl]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[сcs$]+(?:[^a-zа-я0-9ё]*[ьb])?'
+  #   mute_duration: 30s
+  #   responses:
+  #     - type: "voice"
+  #       path: "./files/relax_bitch_audio.ogg"
+  #       duration: 6
+  #     - type: "gif"
+  #       url: "https://cdn.discordapp.com/attachments/718015270194511903/1559540430700286022/relax_bitch.gif"
   # # гфика с "Молимся за тишину чата"
   - pattern: '(?i)[kк]+[^a-zа-я0-9ё]*[rрp]+[^a-zа-я0-9ё]*[eеё3]+[^a-zа-я0-9ё]*[sсc$5]+[^a-zа-я0-9ё]*[tт7]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[nн]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[sсc$5]+[^a-zа-я0-9ё]*[cсц]+[^a-zа-я0-9ё]*[yуыi1]+[^a-zа-я0-9ё]*[mм]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[lл1]+[^a-zа-я0-9ё]*[iи1!]+[^a-zа-я0-9ё]*[tт7]+[^a-zа-я0-9ё]*[vвb8]+[^a-zа-я0-9ё]*[aа@]+'
+  # # модерский произвол
+  - pattern: '(?i)[мm]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[кk]+[^a-zа-я0-9ё]*[иi1!]+(?:[^a-zа-я0-9ё]*[йj])?[^a-zа-я0-9ё]*[пnp]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[иi1!]+[^a-zа-я0-9ё]*[з3z]+[^a-zа-я0-9ё]*[вb8v]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[лl1]+'
+    mute_duration: 30s
+    responses: &MOD_PROIZVOL
+      - type: "gif"
+        url: "https://cdn.discordapp.com/attachments/1481577447857197150/1559628212810682519/image.png"
+      - type: "voice"
+        path: "./files/mozheracia_voice.ogg"
+        duration: 2
+  # # можерация / можерацыя / можирация
+  - pattern: '(?i)[мm]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*(?:zh|[ж])+[^a-zа-я0-9ё]*[еeё3иi1!]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[цcс]+[^a-zа-я0-9ё]*[иi1!ыy]+[^a-zа-я0-9ё]*[яиею]+'
+    mute_duration: 30s
+    responses: *MOD_PROIZVOL
 
 # Массив ответов (Отправляются сверху вниз с задержкой 700мс)
 responses:
