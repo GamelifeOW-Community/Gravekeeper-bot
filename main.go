@@ -47,6 +47,7 @@ type AntiSpamConfig struct {
 }
 
 type PatternConfig struct {
+	Description  string           `yaml:"description,omitempty" json:"description"`
 	Pattern      string           `yaml:"pattern" json:"pattern"`
 	Enabled      bool             `yaml:"enabled" json:"enabled"`
 	DisableMute  bool             `yaml:"disable_mute" json:"disable_mute"`

@@ -33,39 +33,39 @@ responses:
   #   url: "https://klipy.com/gifs/turn-down-volume-mute"
 
 patterns:
-  # # dead chat
   - pattern: '(?i)[dд]+[^a-zа-я0-9ё]*[eе3]+[^a-zа-я0-9ё]*[aа@]+[^a-zа-я0-9ё]*[dд]+[^a-zа-я0-9ё]*[cс]+[^a-zа-я0-9ё]*[hхн]+[^a-zа-я0-9ё]*[aа@]+[^a-zа-я0-9ё]*[tт7]+'
+    description: 'dead chat'
     enabled: true
     disable_mute: false
     react_chance: 1.0
-  # # chat is dead
   - pattern: '(?i)[cс]+[^a-zа-я0-9ё]*[hхн]+[^a-zа-я0-9ё]*[aа@]+[^a-zа-я0-9ё]*[tт7]+[^a-zа-я0-9ё]*[i1!и]+[^a-zа-я0-9ё]*[sс$5]+[^a-zа-я0-9ё]*[dд]+[^a-zа-я0-9ё]*[eе3]+[^a-zа-я0-9ё]*[aа@]+[^a-zа-я0-9ё]*[dд]+'
+    description: 'chat is dead'
     enabled: true
     disable_mute: false
     react_chance: 1.0
-  # # дед чат
   - pattern: '(?i)[дd]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[ч4]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[тt7]+'
+    description: 'дед чат'
     enabled: true
     disable_mute: false
     react_chance: 1.0
-  # # мертвый чат
   - pattern: '(?i)[дd]+[^a-zа-я0-9ё]*[эeе3]+[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[ч4]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[тt7]+'
+    description: 'мертвый чат'
     enabled: true
     disable_mute: false
     react_chance: 1.0
-  # # дэд чат
   - pattern: '(?i)[мm]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[тt7]+[^a-zа-я0-9ё]*[вb8]+[^a-zа-я0-9ё]*(?:ы|[bь][i1!]|[yиi])+[с-яa-z0-9ё]*?[ч4]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[тt7]+'
+    description: 'дэд чат'
     enabled: true
     disable_mute: false
     react_chance: 1.0
-  # # гфика с "Молимся за тишину чата"
   - pattern: '(?i)[kк]+[^a-zа-я0-9ё]*[rрp]+[^a-zа-я0-9ё]*[eеё3]+[^a-zа-я0-9ё]*[sсc$5]+[^a-zа-я0-9ё]*[tт7]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[nн]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[sсc$5]+[^a-zа-я0-9ё]*[cсц]+[^a-zа-я0-9ё]*[yуыi1]+[^a-zа-я0-9ё]*[mм]+[^a-zа-я0-9ё]*[oо0]+[^a-zа-я0-9ё]*[lл1]+[^a-zа-я0-9ё]*[iи1!]+[^a-zа-я0-9ё]*[tт7]+[^a-zа-я0-9ё]*[vвb8]+[^a-zа-я0-9ё]*[aа@]+'
+    description: 'гфика с "Молимся за тишину чата"'
     enabled: true
     disable_mute: false
     react_chance: 1.0
 
-  # # 1984
   - pattern: '(?i)[1i!l|]+[^a-zа-я0-9ё]*[9g]+[^a-zа-я0-9ё]*[8bв]+[^a-zа-я0-9ё]*[4ч]+'
+    description: '1984'
     enabled: true
     disable_mute: false
     react_chance: 1.0
@@ -77,8 +77,8 @@ patterns:
       - type: "gif"
         url: "https://klipy.com/gifs/dai-li-brainwashing-1"
 
-  # # Тысяча девятьсот восемьдесят четыре
   - pattern: '(?i)[тt7]+[^a-zа-я0-9ё]*[ыyиi]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[я]+[^a-zа-я0-9ё]*[ч4]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[вb8v]+[^a-zа-я0-9ё]*[я]+[^a-zа-я0-9ё]*[тt7]+(?:[^a-zа-я0-9ё]*[ьb])?[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[тt7]+[^a-zа-я0-9ё]*[вb8v]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[мm]+(?:[^a-zа-я0-9ё]*[ьb])?[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[я]+[^a-zа-я0-9ё]*[тt7]+[^a-zа-я0-9ё]*[ч4]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[тt7]+[^a-zа-я0-9ё]*[ыyиi]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[еeё3]+'
+    description: 'Тысяча девятьсот восемьдесят четыре'
     enabled: true
     disable_mute: false
     react_chance: 1.0
@@ -87,8 +87,8 @@ patterns:
       - type: "text"
         content: "ты че, сука, самый умный?"
 
-  # # модерский произвол
   - pattern: '(?i)[мm]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[дd]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[кk]+[^a-zа-я0-9ё]*[иi1!]+(?:[^a-zа-я0-9ё]*[йj])?[^a-zа-я0-9ё]*[пnp]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[иi1!]+[^a-zа-я0-9ё]*[з3z]+[^a-zа-я0-9ё]*[вb8v]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[лl1]+'
+    description: 'модерский произвол'
     enabled: true
     disable_mute: false
     react_chance: 1.0
@@ -99,16 +99,16 @@ patterns:
       - type: "voice"
         path: "./files/mozheracia_voice.ogg"
         duration: 2
-  # # можерация / можерацыя / можирация
   - pattern: '(?i)[мm]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*(?:zh|[ж])+[^a-zа-я0-9ё]*[еeё3иi1!]+[^a-zа-я0-9ё]*[рp]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[цcс]+[^a-zа-я0-9ё]*[иi1!ыy]+[^a-zа-я0-9ё]*[яиею]+'
+    description: 'можерация / можерацыя / можирация'
     enabled: true
     disable_mute: false
     react_chance: 1.0
     mute_duration: 30s
     responses: *MOD_PROIZVOL
 
-  # # заебалась
   - pattern: '(?i)[з3z]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[еeё3]+[^a-zа-я0-9ё]*[б6b]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[лl]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[сcs$]+(?:[^a-zа-я0-9ё]*[ьb])?'
+    description: 'заебалась'
     enabled: true
     disable_mute: false
     react_chance: 0.1
@@ -121,8 +121,8 @@ patterns:
         url: "https://cdn.discordapp.com/attachments/718015270194511903/1559540430700286022/relax_bitch.gif"
 
 
-  # # да - пизда (текст)
   - pattern: '(?i)(?:^|[^а-яёa-z0-9])д+а+(?:\s*[.!?…]+(?:\s+|$)|[\s.!?…»”\)]*$)'
+    description: 'да - пизда'
     enabled: true
     disable_mute: true
     react_chance: 0.25
@@ -130,8 +130,8 @@ patterns:
     responses:
       - type: "text"
         content: "пизда"
-  # # da - pizda (текст)
   - pattern: '(?i)(?:^|[^а-яёa-z0-9])d+a+(?:\s*[.!?…]+(?:\s+|$)|[\s.!?…»”\)]*$)'
+    description: 'da - pizda'
     enabled: true
     disable_mute: true
     react_chance: 0.25
@@ -140,8 +140,8 @@ patterns:
       - type: "text"
         content: "pizda"
 
-  # # бот сосал - а может ты сосал? (текст+мут)
   - pattern: '(?i)[б6b]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[тt7]+[^a-zа-я0-9ё]+[сcs$]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[лl1]+(?:[^a-zа-я0-9ё]*[иi1!]+)?'
+    description: 'бот сосал - а может ты сосал?'
     enabled: true
     disable_mute: false
     react_chance: 1.0
@@ -150,8 +150,8 @@ patterns:
       - type: "text"
         content: "а может ты сосал?"
 
-  # # сосал? - https://vkvideo.ru/video-207565017_456239826
   - pattern: '(?i)^\s*[сcs$]+[^a-zа-я0-9ё]*[оo0]+[^a-zа-я0-9ё]*[сcs$]+[^a-zа-я0-9ё]*[аa@]+[^a-zа-я0-9ё]*[лl1]+(?:[^a-zа-я0-9ё]*[иi1!]+)?[\s.!?…»”\)]*$'
+    description: 'сосал? - я не сосал члены'
     enabled: true
     disable_mute: true
     react_chance: 0.25
@@ -161,8 +161,8 @@ patterns:
         path: "./files/ya_ne_sosal.ogg"
         duration: 2
 
-  # # бот - ко мне какие вопросы, я по траве бегаю блин (гиф) или ГС https://www.youtube.com/shorts/vNH-WkmRUFA
   - pattern: '(?i)(?:^|[^а-яёa-z0-9])[бb]+[оo0]+[тt]+(?:[аеиоуыяs]|ов|ом|ами?|ах|ик[а-яё]*|яр[а-яё]*)?(?:$|[^а-яёa-z0-9])'
+    description: 'бот - че звал сларк'
     enabled: true
     disable_mute: true
     react_chance: 1.0
@@ -172,8 +172,8 @@ patterns:
         path: "./files/che_zval_slark.ogg"
         duration: 2
 
-  # # пидор - а может ты пидор епта (голосовое)
   - pattern: '(?i)[пp]+[иi1!]+[дd]+[оаa@0o]*[рr]+[а-яёa-z0-9]*'
+    description: 'пидор - а может ты пидор епта (голосовое)'
     enabled: true
     disable_mute: true
     react_chance: 0.5
@@ -182,5 +182,3 @@ patterns:
       - type: "voice"
         path: "./files/a_mozhet_ti_pidor.ogg"
         duration: 2
-
-
