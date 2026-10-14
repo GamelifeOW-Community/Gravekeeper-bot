@@ -12,7 +12,7 @@ services:
       - "8081:8081"
     volumes:
       - ./config.yaml:/app/config.yaml
-      - ./files:/app/files:ro
+      - ./files:/app/files
       - ./data:/app/data
     environment:
       - TZ=Europe/Moscow

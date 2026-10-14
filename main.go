@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	crand "crypto/rand" // Алиас, чтобы избежать конфликта с math/rand
+	crand "crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -10,16 +10,17 @@ import (
 	"io"
 	"log"
 	"math"
-	"math/rand/v2" // Основной rand для генерации чисел
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"syscall"
 	"time"
 
-	_ "embed" // Для встраивания HTML файла
+	_ "embed"
 
 	"github.com/bwmarrin/discordgo"
 	"golang.org/x/crypto/bcrypt"
@@ -153,6 +154,7 @@ func (b *Bot) startWebServer() {
 
 	mux.Handle("/api/config", b.authMiddleware(http.HandlerFunc(b.handleConfig)))
 	mux.Handle("GET /api/config/export", b.authMiddleware(http.HandlerFunc(b.handleConfigExport)))
+	mux.Handle("POST /api/upload", b.authMiddleware(http.HandlerFunc(b.handleUpload))) // Эндпоинт загрузки
 
 	port := fmt.Sprintf(":%d", b.config.WebPort)
 	log.Printf("🌐 Web-интерфейс запущен на http://localhost%s", port)
@@ -288,6 +290,44 @@ func (b *Bot) handleConfigExport(w http.ResponseWriter, r *http.Request) {
 
 	yaml.NewEncoder(w).Encode(exportData)
 	b.auditLog(r.Header.Get("X-User"), "Выгружен безопасный конфиг")
+}
+
+func (b *Bot) handleUpload(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(20 << 20) // Лимит 20 MB
+	if err != nil {
+		http.Error(w, "Файл слишком большой", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Ошибка чтения файла", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(handler.Filename)
+	if filepath.Ext(filename) != ".ogg" {
+		http.Error(w, "Разрешены только .ogg файлы", http.StatusBadRequest)
+		return
+	}
+
+	os.MkdirAll("files", 0755)
+	savePath := filepath.Join("files", filename)
+
+	dst, err := os.Create(savePath)
+	if err != nil {
+		http.Error(w, "Ошибка сохранения файла на сервере", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+	io.Copy(dst, file)
+
+	b.auditLog(r.Header.Get("X-User"), "Загружен аудиофайл: "+filename)
+
+	// Возвращаем фронтенду путь к загруженному файлу
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"path": filepath.ToSlash(savePath)})
 }
 
 // ====================== DISCORD LOGIC ======================
@@ -615,7 +655,7 @@ func (b *Bot) loadUsers() {
 
 func generateToken() string {
 	b := make([]byte, 16)
-	crand.Read(b) // Теперь используем правильный rand (crypto/rand)
+	crand.Read(b)
 	return hex.EncodeToString(b)
 }
 
