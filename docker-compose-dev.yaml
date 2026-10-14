@@ -8,8 +8,10 @@ services:
         - gravekeeper_bot:latest
     container_name: gravekeeper-bot
     restart: unless-stopped
+    ports:
+      - "8081:8081"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
       - ./files:/app/files:ro
       - ./data:/app/data
     environment:

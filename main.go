@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	crand "crypto/rand" // Алиас, чтобы избежать конфликта с math/rand
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"math/rand/v2" // Основной rand для генерации чисел
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,117 +19,298 @@ import (
 	"syscall"
 	"time"
 
+	_ "embed" // Для встраивания HTML файла
+
 	"github.com/bwmarrin/discordgo"
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
-// ResponseAction описывает одно действие ответа
+//go:embed index.html
+var indexHTML []byte
+
 type ResponseAction struct {
-	Type     string  `yaml:"type"`
-	Content  string  `yaml:"content,omitempty"`
-	URL      string  `yaml:"url,omitempty"`
-	Path     string  `yaml:"path,omitempty"`
-	Duration float64 `yaml:"duration,omitempty"`
+	Type     string  `yaml:"type" json:"type"`
+	Content  string  `yaml:"content,omitempty" json:"content,omitempty"`
+	URL      string  `yaml:"url,omitempty" json:"url,omitempty"`
+	Path     string  `yaml:"path,omitempty" json:"path,omitempty"`
+	Duration float64 `yaml:"duration,omitempty" json:"duration,omitempty"`
 }
 
-// PatternConfig описывает отдельный паттерн и его переопределения
+type AntiSpamConfig struct {
+	Enabled      bool             `yaml:"enabled" json:"enabled"`
+	ThresholdMin int              `yaml:"threshold_min" json:"threshold_min"`
+	ThresholdMax int              `yaml:"threshold_max" json:"threshold_max"`
+	ResetTime    string           `yaml:"reset_time" json:"reset_time"`
+	MuteDuration string           `yaml:"mute_duration" json:"mute_duration"`
+	Responses    []ResponseAction `yaml:"responses" json:"responses"`
+}
+
 type PatternConfig struct {
-	Pattern      string           `yaml:"pattern"`
-	MuteDuration time.Duration    `yaml:"mute_duration"`
-	Responses    []ResponseAction `yaml:"responses"`
+	Pattern      string           `yaml:"pattern" json:"pattern"`
+	Enabled      bool             `yaml:"enabled" json:"enabled"`
+	DisableMute  bool             `yaml:"disable_mute" json:"disable_mute"`
+	ReactChance  float64          `yaml:"react_chance" json:"react_chance"`
+	MuteDuration string           `yaml:"mute_duration,omitempty" json:"mute_duration,omitempty"`
+	Responses    []ResponseAction `yaml:"responses,omitempty" json:"responses,omitempty"`
 }
 
-// CompiledPattern связывает скомпилированную регулярку с ее настройками
+type Config struct {
+	BotToken          string           `yaml:"bot_token" json:"-"`
+	GuildID           string           `yaml:"guild_id" json:"-"`
+	StateFilePath     string           `yaml:"state_file_path" json:"-"`
+	WebPort           int              `yaml:"web_port" json:"-"`
+	MonitoredChannels []string         `yaml:"monitored_channels" json:"monitored_channels"`
+	MuteRoleID        string           `yaml:"mute_role_id" json:"mute_role_id"`
+	IgnoreReplies     bool             `yaml:"ignore_replies" json:"ignore_replies"`
+	MuteDuration      string           `yaml:"mute_duration" json:"mute_duration"`
+	AntiSpam          AntiSpamConfig   `yaml:"anti_spam" json:"anti_spam"`
+	Responses         []ResponseAction `yaml:"responses" json:"responses"`
+	Patterns          []PatternConfig  `yaml:"patterns" json:"patterns"`
+}
+
 type CompiledPattern struct {
 	Regexp *regexp.Regexp
 	Config PatternConfig
 }
 
-type Config struct {
-	BotToken          string           `yaml:"bot_token"`
-	GuildID           string           `yaml:"guild_id"`
-	MonitoredChannels []string         `yaml:"monitored_channels"`
-	MuteRoleID        string           `yaml:"mute_role_id"`
-	IgnoreReplies     bool             `yaml:"ignore_replies"`
-	StateFilePath     string           `yaml:"state_file_path"`
-	MuteDuration      time.Duration    `yaml:"mute_duration"` // Дефолтное время
-	Responses         []ResponseAction `yaml:"responses"`     // Дефолтные ответы
-	Patterns          []PatternConfig  `yaml:"patterns"`
-}
-
-type MuteRecord struct {
-	GuildID  string    `json:"guild_id"`
-	UserID   string    `json:"user_id"`
-	UnmuteAt time.Time `json:"unmute_at"`
+type SpamState struct {
+	Count      int
+	Threshold  int
+	LastAction time.Time
 }
 
 type Bot struct {
-	config     Config
-	session    *discordgo.Session
-	patterns   []CompiledPattern // Храним скомпилированные паттерны с их конфигами
-	state      map[string]MuteRecord
-	stateMutex sync.Mutex
+	config        Config
+	compiledPatts []CompiledPattern
+	cfgMutex      sync.RWMutex
+
+	session *discordgo.Session
+
+	mutes      map[string]time.Time
+	mutesMutex sync.Mutex
+
+	spam      map[string]*SpamState
+	spamMutex sync.Mutex
+
+	sessions map[string]string
+	users    map[string]string
+
+	auditLogger *log.Logger
 }
 
 func main() {
-	cfgBytes, err := os.ReadFile("config.yaml")
+	b := &Bot{
+		mutes:    make(map[string]time.Time),
+		spam:     make(map[string]*SpamState),
+		sessions: make(map[string]string),
+		users:    make(map[string]string),
+	}
+
+	b.initAuditLogger()
+	b.loadUsers()
+	b.loadConfig("config.yaml")
+
+	dg, err := discordgo.New("Bot " + b.config.BotToken)
 	if err != nil {
-		log.Fatalf("Ошибка чтения config.yaml: %v", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(cfgBytes, &cfg); err != nil {
-		log.Fatalf("Ошибка парсинга YAML: %v", err)
-	}
-
-	// Компилируем регулярки и привязываем к ним их настройки
-	var compiledPatterns []CompiledPattern
-	for _, p := range cfg.Patterns {
-		re, err := regexp.Compile(p.Pattern)
-		if err != nil {
-			log.Fatalf("Ошибка компиляции паттерна '%s': %v", p.Pattern, err)
-		}
-		compiledPatterns = append(compiledPatterns, CompiledPattern{
-			Regexp: re,
-			Config: p,
-		})
-	}
-
-	dg, err := discordgo.New("Bot " + cfg.BotToken)
-	if err != nil {
-		log.Fatalf("Ошибка создания сессии Discord: %v", err)
+		log.Fatalf("Ошибка Discord: %v", err)
 	}
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsGuilds
+	b.session = dg
 
-	b := &Bot{
-		config:   cfg,
-		session:  dg,
-		patterns: compiledPatterns,
-		state:    make(map[string]MuteRecord),
-	}
-
-	b.loadState()
+	b.loadMutes()
 	dg.AddHandler(b.messageCreate)
 
 	if err = dg.Open(); err != nil {
 		log.Fatalf("Ошибка подключения к Discord: %v", err)
 	}
 	defer dg.Close()
+	log.Println("🤖 Бот успешно запущен!")
 
-	log.Println("Бот успешно запущен! Ждем нарушителей...")
 	b.processLoadedMutes()
+
+	go b.startWebServer()
 
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
-	log.Println("Завершение работы бота...")
+	log.Println("Завершение работы...")
 }
 
-func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID || !contains(b.config.MonitoredChannels, m.ChannelID) {
+// ====================== WEB SERVER & API ======================
+
+func (b *Bot) startWebServer() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexHTML)
+	})
+
+	mux.HandleFunc("POST /api/login", b.handleLogin)
+	mux.HandleFunc("POST /api/logout", b.handleLogout)
+
+	mux.Handle("/api/config", b.authMiddleware(http.HandlerFunc(b.handleConfig)))
+	mux.Handle("GET /api/config/export", b.authMiddleware(http.HandlerFunc(b.handleConfigExport)))
+
+	port := fmt.Sprintf(":%d", b.config.WebPort)
+	log.Printf("🌐 Web-интерфейс запущен на http://localhost%s", port)
+	if err := http.ListenAndServe(port, mux); err != nil {
+		log.Fatalf("Ошибка Web-сервера: %v", err)
+	}
+}
+
+func (b *Bot) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("session_token")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		b.cfgMutex.RLock()
+		user, exists := b.sessions[cookie.Value]
+		b.cfgMutex.RUnlock()
+
+		if !exists {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		r.Header.Set("X-User", user)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (b *Bot) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var creds struct{ Username, Password string }
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	if b.config.IgnoreReplies && m.MessageReference != nil {
+
+	b.cfgMutex.RLock()
+	hash, exists := b.users[creds.Username]
+	b.cfgMutex.RUnlock()
+
+	if !exists || bcrypt.CompareHashAndPassword([]byte(hash), []byte(creds.Password)) != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	sessionToken := generateToken()
+	b.cfgMutex.Lock()
+	b.sessions[sessionToken] = creds.Username
+	b.cfgMutex.Unlock()
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    sessionToken,
+		Expires:  time.Now().Add(24 * time.Hour),
+		HttpOnly: true,
+	})
+
+	b.auditLog(creds.Username, "Успешный вход в систему")
+	w.WriteHeader(http.StatusOK)
+}
+
+func (b *Bot) handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_token")
+	if err == nil {
+		b.cfgMutex.Lock()
+		delete(b.sessions, cookie.Value)
+		b.cfgMutex.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{Name: "session_token", Value: "", Expires: time.Now().Add(-1 * time.Hour)})
+	w.WriteHeader(http.StatusOK)
+}
+
+func (b *Bot) handleConfig(w http.ResponseWriter, r *http.Request) {
+	user := r.Header.Get("X-User")
+
+	if r.Method == "GET" {
+		b.cfgMutex.RLock()
+		defer b.cfgMutex.RUnlock()
+		json.NewEncoder(w).Encode(b.config)
+		return
+	}
+
+	if r.Method == "POST" {
+		var newPartialConfig Config
+		if err := json.NewDecoder(r.Body).Decode(&newPartialConfig); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		b.cfgMutex.Lock()
+		newPartialConfig.BotToken = b.config.BotToken
+		newPartialConfig.GuildID = b.config.GuildID
+		newPartialConfig.StateFilePath = b.config.StateFilePath
+		newPartialConfig.WebPort = b.config.WebPort
+
+		b.config = newPartialConfig
+		b.compilePatternsUnsafe()
+		b.cfgMutex.Unlock()
+
+		b.saveConfigToDisk()
+		b.auditLog(user, "Конфигурация была изменена")
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (b *Bot) handleConfigExport(w http.ResponseWriter, r *http.Request) {
+	b.cfgMutex.RLock()
+	defer b.cfgMutex.RUnlock()
+	w.Header().Set("Content-Disposition", "attachment; filename=config_safe.yaml")
+	w.Header().Set("Content-Type", "application/x-yaml")
+
+	type SafeExport struct {
+		MonitoredChannels []string         `yaml:"monitored_channels"`
+		MuteRoleID        string           `yaml:"mute_role_id"`
+		IgnoreReplies     bool             `yaml:"ignore_replies"`
+		MuteDuration      string           `yaml:"mute_duration"`
+		AntiSpam          AntiSpamConfig   `yaml:"anti_spam"`
+		Responses         []ResponseAction `yaml:"responses"`
+		Patterns          []PatternConfig  `yaml:"patterns"`
+	}
+
+	exportData := SafeExport{
+		MonitoredChannels: b.config.MonitoredChannels,
+		MuteRoleID:        b.config.MuteRoleID,
+		IgnoreReplies:     b.config.IgnoreReplies,
+		MuteDuration:      b.config.MuteDuration,
+		AntiSpam:          b.config.AntiSpam,
+		Responses:         b.config.Responses,
+		Patterns:          b.config.Patterns,
+	}
+
+	yaml.NewEncoder(w).Encode(exportData)
+	b.auditLog(r.Header.Get("X-User"), "Выгружен безопасный конфиг")
+}
+
+// ====================== DISCORD LOGIC ======================
+
+func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	b.cfgMutex.RLock()
+	cfg := b.config
+	patts := b.compiledPatts
+	b.cfgMutex.RUnlock()
+
+	if m.Author.ID == s.State.User.ID || !contains(cfg.MonitoredChannels, m.ChannelID) {
+		return
+	}
+
+	if cfg.AntiSpam.Enabled && b.isTargetingBot(m) {
+		if b.handleAntiSpam(m.Author.ID, cfg) {
+			duration, _ := time.ParseDuration(cfg.AntiSpam.MuteDuration)
+			b.applyPunishment(m.Author.ID, m.Author.Username, duration, cfg.GuildID, cfg.MuteRoleID, false)
+			b.sendReply(m.Message, cfg.AntiSpam.Responses)
+			return
+		}
+	}
+
+	if cfg.IgnoreReplies && m.MessageReference != nil {
 		return
 	}
 	if m.Type != discordgo.MessageTypeDefault && m.Type != discordgo.MessageTypeReply {
@@ -138,53 +322,104 @@ func (b *Bot) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		textToCheck += " " + att.Filename
 	}
 
-	// Ищем совпадение
-	var matchedPattern *CompiledPattern
-	for _, cp := range b.patterns {
-		if cp.Regexp.MatchString(textToCheck) {
-			matchedPattern = &cp
-			break // Останавливаемся на первом совпавшем паттерне
+	var matched *CompiledPattern
+	for _, cp := range patts {
+		if cp.Config.Enabled && cp.Regexp.MatchString(textToCheck) {
+			matched = &cp
+			break
 		}
 	}
 
-	if matchedPattern == nil {
-		return // Совпадений нет
+	if matched == nil {
+		return
 	}
 
-	log.Printf("Обнаружен триггер ('%s') от %s (%s)", matchedPattern.Config.Pattern, m.Author.Username, m.Author.ID)
-
-	// --- ОПРЕДЕЛЯЕМ НАСТРОЙКИ (Специфичные или Дефолтные) ---
-	
-	// 1. Длительность мута
-	duration := b.config.MuteDuration
-	if matchedPattern.Config.MuteDuration != 0 {
-		duration = matchedPattern.Config.MuteDuration
+	if matched.Config.ReactChance < 1.0 {
+		if rand.Float64() > matched.Config.ReactChance {
+			log.Printf("Паттерн '%s' проигнорирован из-за шанса (ReactChance=%.2f)", matched.Config.Pattern, matched.Config.ReactChance)
+			return
+		}
 	}
 
-	// 2. Действия ответа (Responses)
-	actions := b.config.Responses
-	if len(matchedPattern.Config.Responses) > 0 {
-		actions = matchedPattern.Config.Responses
+	log.Printf("Обнаружен триггер ('%s') от %s", matched.Config.Pattern, m.Author.Username)
+
+	durStr := cfg.MuteDuration
+	if matched.Config.MuteDuration != "" {
+		durStr = matched.Config.MuteDuration
+	}
+	duration, _ := time.ParseDuration(durStr)
+
+	actions := cfg.Responses
+	if len(matched.Config.Responses) > 0 {
+		actions = matched.Config.Responses
 	}
 
-	// Выдаем роль
-	err := s.GuildMemberRoleAdd(b.config.GuildID, m.Author.ID, b.config.MuteRoleID)
-	if err != nil {
-		log.Printf("❌ ОШИБКА выдачи роли мута: %v", err)
-	} else {
-		log.Printf("✅ Выдан мут пользователю %s на %v", m.Author.Username, duration)
-	}
-
-	// Планируем снятие мута с учетом вычисленной duration
-	unmuteTime := time.Now().Add(duration)
-	b.saveMute(b.config.GuildID, m.Author.ID, unmuteTime)
-	b.scheduleUnmute(b.config.GuildID, m.Author.ID, duration)
-
-	// Отправляем ответ, передавая вычисленный массив actions
+	b.applyPunishment(m.Author.ID, m.Author.Username, duration, cfg.GuildID, cfg.MuteRoleID, matched.Config.DisableMute)
 	b.sendReply(m.Message, actions)
 }
 
-// Теперь функция принимает конкретный список действий
+func (b *Bot) isTargetingBot(m *discordgo.MessageCreate) bool {
+	for _, u := range m.Mentions {
+		if u.ID == b.session.State.User.ID {
+			return true
+		}
+	}
+	if m.MessageReference != nil {
+		refMsg, err := b.session.State.Message(m.ChannelID, m.MessageReference.MessageID)
+		if err == nil && refMsg.Author.ID == b.session.State.User.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Bot) handleAntiSpam(userID string, cfg Config) bool {
+	b.spamMutex.Lock()
+	defer b.spamMutex.Unlock()
+
+	state, exists := b.spam[userID]
+	resetDur, _ := time.ParseDuration(cfg.AntiSpam.ResetTime)
+
+	if !exists || time.Since(state.LastAction) > resetDur {
+		threshold := cfg.AntiSpam.ThresholdMin
+		if cfg.AntiSpam.ThresholdMax > cfg.AntiSpam.ThresholdMin {
+			threshold = rand.IntN(cfg.AntiSpam.ThresholdMax-cfg.AntiSpam.ThresholdMin+1) + cfg.AntiSpam.ThresholdMin
+		}
+		state = &SpamState{Count: 0, Threshold: threshold}
+		b.spam[userID] = state
+	}
+
+	state.Count++
+	state.LastAction = time.Now()
+
+	if state.Count >= state.Threshold {
+		delete(b.spam, userID)
+		return true
+	}
+	return false
+}
+
+func (b *Bot) applyPunishment(userID, username string, duration time.Duration, guildID, roleID string, disableMute bool) {
+	if disableMute {
+		log.Printf("Мут отменен параметром disable_mute для %s", username)
+		return
+	}
+
+	if err := b.session.GuildMemberRoleAdd(guildID, userID, roleID); err != nil {
+		log.Printf("❌ Ошибка выдачи мута: %v", err)
+		return
+	}
+	log.Printf("✅ Выдан мут пользователю %s на %v", username, duration)
+
+	unmuteAt := time.Now().Add(duration)
+	b.mutesMutex.Lock()
+	b.mutes[userID] = unmuteAt
+	b.mutesMutex.Unlock()
+
+	b.persistMutes()
+	b.scheduleUnmute(guildID, userID, roleID, duration)
+}
+
 func (b *Bot) sendReply(m *discordgo.Message, actions []ResponseAction) {
 	for _, action := range actions {
 		switch action.Type {
@@ -204,8 +439,10 @@ func (b *Bot) sendReply(m *discordgo.Message, actions []ResponseAction) {
 	}
 }
 
-// Вспомогательные методы отправки и работы со стейтом остаются без изменений
 func (b *Bot) sendTextMsg(channelID, messageID, content string) {
+	if content == "" {
+		return
+	}
 	_, err := b.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: content,
 		Reference: &discordgo.MessageReference{
@@ -303,65 +540,82 @@ func (b *Bot) sendActualVoiceMessage(channelID, replyToID, filePath string, dura
 	return nil
 }
 
-func (b *Bot) scheduleUnmute(guildID, userID string, duration time.Duration) {
-	time.AfterFunc(duration, func() {
-		b.stateMutex.Lock()
-		_, exists := b.state[userID]
-		b.stateMutex.Unlock()
+// ====================== UTILS & SETUP ======================
 
-		if !exists {
-			return
-		}
-
-		_ = b.session.GuildMemberRoleRemove(guildID, userID, b.config.MuteRoleID)
-		b.removeMute(userID)
-		log.Printf("Мут снят с %s", userID)
-	})
-}
-
-func (b *Bot) processLoadedMutes() {
-	b.stateMutex.Lock()
-	defer b.stateMutex.Unlock()
-	now := time.Now()
-	for userID, record := range b.state {
-		if now.After(record.UnmuteAt) {
-			_ = b.session.GuildMemberRoleRemove(record.GuildID, record.UserID, b.config.MuteRoleID)
-			delete(b.state, userID)
-			log.Printf("Снят просроченный мут с %s", userID)
-		} else {
-			durationLeft := record.UnmuteAt.Sub(now)
-			go b.scheduleUnmute(record.GuildID, record.UserID, durationLeft)
+func (b *Bot) compilePatternsUnsafe() {
+	b.compiledPatts = nil
+	for _, p := range b.config.Patterns {
+		re, err := regexp.Compile(p.Pattern)
+		if err == nil {
+			b.compiledPatts = append(b.compiledPatts, CompiledPattern{Regexp: re, Config: p})
 		}
 	}
-	b.persistState()
 }
 
-func (b *Bot) saveMute(guildID, userID string, unmuteAt time.Time) {
-	b.stateMutex.Lock()
-	defer b.stateMutex.Unlock()
-	b.state[userID] = MuteRecord{GuildID: guildID, UserID: userID, UnmuteAt: unmuteAt}
-	b.persistState()
+func (b *Bot) saveConfigToDisk() {
+	b.cfgMutex.RLock()
+	data, _ := yaml.Marshal(b.config)
+	b.cfgMutex.RUnlock()
+	os.WriteFile("config.yaml", data, 0644)
 }
 
-func (b *Bot) removeMute(userID string) {
-	b.stateMutex.Lock()
-	defer b.stateMutex.Unlock()
-	delete(b.state, userID)
-	b.persistState()
+func (b *Bot) loadConfig(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("Ошибка чтения конфига: %v", err)
+	}
+	b.cfgMutex.Lock()
+	yaml.Unmarshal(data, &b.config)
+
+	if b.config.WebPort == 0 {
+		b.config.WebPort = 8080
+	}
+	if b.config.AntiSpam.ThresholdMin == 0 {
+		b.config.AntiSpam.ThresholdMin = 3
+	}
+	if b.config.AntiSpam.ThresholdMax == 0 {
+		b.config.AntiSpam.ThresholdMax = 7
+	}
+	if b.config.AntiSpam.ResetTime == "" {
+		b.config.AntiSpam.ResetTime = "30m"
+	}
+
+	b.compilePatternsUnsafe()
+	b.cfgMutex.Unlock()
 }
 
-func (b *Bot) persistState() {
-	data, _ := json.MarshalIndent(b.state, "", "  ")
-	_ = os.WriteFile(b.config.StateFilePath, data, 0644)
+func (b *Bot) initAuditLogger() {
+	os.MkdirAll("data", 0755)
+	file, err := os.OpenFile("data/audit.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		log.Fatal(err)
+	}
+	b.auditLogger = log.New(file, "", log.LstdFlags)
 }
 
-func (b *Bot) loadState() {
-	data, err := os.ReadFile(b.config.StateFilePath)
+func (b *Bot) auditLog(user, action string) {
+	b.auditLogger.Printf("[User: %s] %s\n", user, action)
+}
+
+func (b *Bot) loadUsers() {
+	data, err := os.ReadFile("data/users.json")
 	if err == nil {
-		b.stateMutex.Lock()
-		defer b.stateMutex.Unlock()
-		_ = json.Unmarshal(data, &b.state)
+		json.Unmarshal(data, &b.users)
 	}
+	if len(b.users) == 0 {
+		log.Println("⚠️ Создан дефолтный пользователь admin:admin (Смените пароль!)")
+		hash, _ := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+		b.users["admin"] = string(hash)
+		os.MkdirAll("data", 0755)
+		d, _ := json.Marshal(b.users)
+		os.WriteFile("data/users.json", d, 0644)
+	}
+}
+
+func generateToken() string {
+	b := make([]byte, 16)
+	crand.Read(b) // Теперь используем правильный rand (crypto/rand)
+	return hex.EncodeToString(b)
 }
 
 func contains(slice []string, val string) bool {
@@ -371,4 +625,61 @@ func contains(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+func (b *Bot) scheduleUnmute(guildID, userID, roleID string, duration time.Duration) {
+	time.AfterFunc(duration, func() {
+		b.mutesMutex.Lock()
+		_, exists := b.mutes[userID]
+		if exists {
+			delete(b.mutes, userID)
+		}
+		b.mutesMutex.Unlock()
+		if exists {
+			_ = b.session.GuildMemberRoleRemove(guildID, userID, roleID)
+			b.persistMutes()
+			log.Printf("Мут снят с %s", userID)
+		}
+	})
+}
+
+func (b *Bot) persistMutes() {
+	b.mutesMutex.Lock()
+	data, _ := json.Marshal(b.mutes)
+	b.mutesMutex.Unlock()
+	b.cfgMutex.RLock()
+	path := b.config.StateFilePath
+	b.cfgMutex.RUnlock()
+	os.WriteFile(path, data, 0644)
+}
+
+func (b *Bot) loadMutes() {
+	b.cfgMutex.RLock()
+	path := b.config.StateFilePath
+	b.cfgMutex.RUnlock()
+	data, err := os.ReadFile(path)
+	if err == nil {
+		b.mutesMutex.Lock()
+		json.Unmarshal(data, &b.mutes)
+		b.mutesMutex.Unlock()
+	}
+}
+
+func (b *Bot) processLoadedMutes() {
+	b.mutesMutex.Lock()
+	defer b.mutesMutex.Unlock()
+	b.cfgMutex.RLock()
+	gID := b.config.GuildID
+	rID := b.config.MuteRoleID
+	b.cfgMutex.RUnlock()
+
+	now := time.Now()
+	for userID, unmuteAt := range b.mutes {
+		if now.After(unmuteAt) {
+			_ = b.session.GuildMemberRoleRemove(gID, userID, rID)
+			delete(b.mutes, userID)
+		} else {
+			go b.scheduleUnmute(gID, userID, rID, unmuteAt.Sub(now))
+		}
+	}
 }
