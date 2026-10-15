@@ -4,3 +4,4 @@ config.yaml
 /data/users.json
 /data/*.log
 TODO.md
+docker-compose.yaml
