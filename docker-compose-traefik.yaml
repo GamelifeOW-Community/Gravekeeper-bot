@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.7.7
+    container_name: global-traefik
+    command:
+      - --configFile=/config.yaml
+    # ports:
+    #   - "80:80"
+    #   - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/config.yaml:/config.yaml
+      - ./data/acme.json:/acme.json
+      - ./data/dynamic-configs:/dynamic/conf
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.traefik.rule=Host(`traefik.local`)"
+    #   - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+    restart: unless-stopped
+    # networks:
+    #   - traefik-proxy
+    network_mode: host
+    
+  traefik-certs-dumper:
+    image: ldez/traefik-certs-dumper:v2.10.0
+    entrypoint: sh -c '
+      apk add openssl &&
+      while ! [ -e /data/acme.json ]
+      || ! [ `jq ".[] | .Certificates | length" /data/acme.json | jq -s "add" ` != 0 ]; do
+      sleep 1
+      ; done
+      && traefik-certs-dumper file --version v3 --watch --domain-subdir=true
+      --source /data/acme.json --dest /data/letsencrypt/certs --post-hook "sh /post-hook.sh"'
+    environment:
+      - CERTS_DIR=/data/letsencrypt/certs
+    restart: unless-stopped
+    volumes:
+      - ./data/letsencrypt:/data/letsencrypt
+      - ./data/acme.json:/data/acme.json
+      - ./data/post-hook.sh:/post-hook.sh
+
+  discord-bot:
+    build:
+      context: .
+      tags:
+        - gravekeeper_bot:latest
+    container_name: gravekeeper-bot
+    restart: unless-stopped
+    # ports:
+    #   - "8081:8081"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./files:/app/files
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Moscow
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.gravekeeper-bot.loadbalancer.server.port=8081"
+      - "traefik.http.services.gravekeeper-bot.loadbalancer.server.scheme=http"
+      - "traefik.http.routers.gravekeeper-bot.rule=Host(`gravekeeper-bot.example.com`)"
+      - "traefik.http.routers.gravekeeper-bot.service=gravekeeper-bot"
+      - "traefik.http.routers.gravekeeper-bot.tls=true"
+      - "traefik.http.routers.gravekeeper-bot.tls.certresolver=letsEncrypt"

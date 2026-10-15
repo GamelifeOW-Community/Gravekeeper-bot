@@ -2,6 +2,9 @@ config.yaml
 *.mp3
 /data/mutes.json
 /data/users.json
+/data/config.yaml
+/data/acme.json
+/data/letsencrypt/*
 /data/*.log
 TODO.md
 docker-compose.yaml
